@@ -1,0 +1,224 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OrganizationStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum UserRole {
+  ADMIN
+  ORG_MANAGER
+  EMPLOYEE
+}
+
+enum UserStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum ShiftSource {
+  WEB
+  TELEGRAM
+  MANAGER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  ARCHIVE
+  START_SHIFT
+  FINISH_SHIFT
+  RESET_PASSWORD
+  LINK_TELEGRAM
+}
+
+model Organization {
+  id          String             @id @default(cuid())
+  name        String
+  timezone    String             @default("Europe/Moscow")
+  status      OrganizationStatus @default(ACTIVE)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  archivedAt  DateTime?
+
+  users       User[]
+  departments Department[]
+  shifts      Shift[]
+  auditLogs   AuditLog[]
+
+  @@index([status])
+}
+
+model Department {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  archivedAt     DateTime?
+
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  users          UserDepartment[]
+  shifts         Shift[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model User {
+  id             String            @id @default(cuid())
+  organizationId String?
+  role           UserRole
+  status         UserStatus        @default(ACTIVE)
+  firstName      String
+  lastName       String
+  middleName     String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  archivedAt     DateTime?
+
+  organization   Organization?     @relation(fields: [organizationId], references: [id])
+  departments    UserDepartment[]
+  password       PasswordIdentity?
+  telegram       TelegramIdentity?
+  refreshSessions RefreshSession[]
+  shifts         Shift[]           @relation("EmployeeShifts")
+  createdShifts  Shift[]           @relation("CreatedShifts")
+  shiftAuditLogs ShiftAuditLog[]
+  auditLogs      AuditLog[]        @relation("ActorAuditLogs")
+  linkCodes      TelegramLinkCode[]
+
+  @@index([organizationId, role, status])
+  @@index([lastName, firstName])
+}
+
+model UserDepartment {
+  userId       String
+  departmentId String
+  createdAt    DateTime   @default(now())
+
+  user         User       @relation(fields: [userId], references: [id])
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  @@id([userId, departmentId])
+  @@index([departmentId])
+}
+
+model PasswordIdentity {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  login                String   @unique
+  passwordHash         String
+  mustChangePassword   Boolean  @default(true)
+  lastPasswordChangeAt DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user                 User     @relation(fields: [userId], references: [id])
+}
+
+model TelegramIdentity {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  telegramId String   @unique
+  username   String?
+  linkedAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user       User     @relation(fields: [userId], references: [id])
+}
+
+model TelegramLinkCode {
+  id        String    @id @default(cuid())
+  userId    String
+  code      String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+}
+
+model RefreshSession {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, revokedAt])
+}
+
+model Shift {
+  id             String      @id @default(cuid())
+  organizationId String
+  employeeId     String
+  departmentId   String?
+  createdById    String?
+  status         ShiftStatus @default(OPEN)
+  source         ShiftSource @default(WEB)
+  startedAt      DateTime
+  endedAt        DateTime?
+  comment        String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  employee       User         @relation("EmployeeShifts", fields: [employeeId], references: [id])
+  createdBy      User?        @relation("CreatedShifts", fields: [createdById], references: [id])
+  department     Department?  @relation(fields: [departmentId], references: [id])
+  auditLogs      ShiftAuditLog[]
+
+  @@index([organizationId, startedAt])
+  @@index([employeeId, status])
+  @@index([departmentId])
+}
+
+model ShiftAuditLog {
+  id        String   @id @default(cuid())
+  shiftId   String
+  actorId   String?
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+
+  shift     Shift    @relation(fields: [shiftId], references: [id])
+  actor     User?    @relation(fields: [actorId], references: [id])
+
+  @@index([shiftId, createdAt])
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String?
+  actorId        String?
+  action         AuditAction
+  entityType     String
+  entityId       String
+  details        Json?
+  createdAt      DateTime    @default(now())
+
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  actor          User?         @relation("ActorAuditLogs", fields: [actorId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}

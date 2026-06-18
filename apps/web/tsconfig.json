@@ -1,0 +1,25 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "allowImportingTsExtensions": false,
+    "noEmit": true,
+    "baseUrl": "src",
+    "paths": {
+      "App": ["App/index.ts"],
+      "App/*": ["App/*"],
+      "api/*": ["api/*"],
+      "router/*": ["router/*"],
+      "services/core/*": ["services/core/*"],
+      "services/domains/*": ["services/domains/*"],
+      "styles/*": ["styles/*"],
+      "ui/*": ["ui/*"]
+    }
+  },
+  "include": ["src"]
+}

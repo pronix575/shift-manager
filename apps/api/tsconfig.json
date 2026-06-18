@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["node", "bun"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "strictPropertyInitialization": false,
+    "baseUrl": "src",
+    "paths": {
+      "api/*": ["api/*"],
+      "core/*": ["core/*"],
+      "telegram/*": ["telegram/*"],
+      "generated/*": ["generated/*"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,30 @@
+{
+  "name": "shift-manager",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=24.14.1 <25",
+    "pnpm": ">=11.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @shift-manager/api --filter @shift-manager/web dev",
+    "dev:api": "pnpm --filter @shift-manager/api dev",
+    "dev:web": "pnpm --filter @shift-manager/web dev",
+    "build": "pnpm --recursive build",
+    "typecheck": "pnpm --recursive typecheck",
+    "lint": "pnpm --recursive lint",
+    "test": "pnpm --recursive test",
+    "prisma:generate": "pnpm --filter @shift-manager/api prisma:generate",
+    "prisma:migrate": "pnpm --filter @shift-manager/api prisma:migrate",
+    "seed": "pnpm --filter @shift-manager/api seed"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.4",
+    "eslint": "^9.39.4",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}

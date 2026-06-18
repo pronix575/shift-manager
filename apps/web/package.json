@@ -1,0 +1,36 @@
+{
+  "name": "@shift-manager/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run",
+    "apigen": "swagger-typescript-api generate --no-client --route-types -p http://localhost:4000/api/docs-json -o ./src/api/generated -n api.types.ts"
+  },
+  "dependencies": {
+    "@heroui/react": "^3.2.0",
+    "@heroui/styles": "^3.2.0",
+    "@tailwindcss/vite": "^4.1.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "ky": "^1.8.2",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.3",
+    "react-router-dom": "^7.15.1",
+    "tailwindcss": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "swagger-typescript-api": "^13.9.3",
+    "jsdom": "^27.1.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.13",
+    "vitest": "^4.0.0"
+  }
+}
