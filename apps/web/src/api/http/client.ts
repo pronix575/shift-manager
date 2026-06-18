@@ -1,6 +1,7 @@
 import ky, { HTTPError } from 'ky';
 
 import type { Api } from 'api/generated/api.types';
+import { sessionModel } from 'services/core/session/session.model';
 import { sessionStorageService } from 'services/core/session/sessionStorage';
 
 const apiUrl = resolveApiUrl(import.meta.env.VITE_API_URL || '/api');
@@ -15,7 +16,7 @@ export const apiClient = ky.create({
   hooks: {
     beforeRequest: [
       (request) => {
-        const token = sessionStorageService.getAccessToken();
+        const token = getAccessToken();
 
         if (token) {
           request.headers.set('Authorization', `Bearer ${token}`);
@@ -33,7 +34,7 @@ export const apiClient = ky.create({
         const refreshed = await refreshSession();
 
         if (!refreshed) {
-          sessionStorageService.clear();
+          sessionModel.inputs.sessionCleared();
           return response;
         }
 
@@ -78,7 +79,7 @@ export function isSessionRefreshSkipped(url: string) {
 }
 
 async function refreshSession(): Promise<Api.AuthControllerRefresh.ResponseBody | null> {
-  const refreshToken = sessionStorageService.getRefreshToken();
+  const refreshToken = getRefreshToken();
 
   if (!refreshToken) {
     return null;
@@ -92,8 +93,8 @@ async function refreshSession(): Promise<Api.AuthControllerRefresh.ResponseBody 
     })
     .json<Api.AuthControllerRefresh.ResponseBody>()
     .then((response) => {
-      sessionStorageService.setAccessToken(response.accessToken);
-      sessionStorageService.setRefreshToken(response.refreshToken);
+      sessionModel.inputs.accessTokenChanged(response.accessToken);
+      sessionModel.inputs.refreshTokenChanged(response.refreshToken);
 
       return response;
     })
@@ -103,4 +104,18 @@ async function refreshSession(): Promise<Api.AuthControllerRefresh.ResponseBody 
     });
 
   return refreshPromise;
+}
+
+function getAccessToken() {
+  return (
+    sessionModel.outputs.$accessToken.getState() ??
+    sessionStorageService.getAccessToken()
+  );
+}
+
+function getRefreshToken() {
+  return (
+    sessionModel.outputs.$refreshToken.getState() ??
+    sessionStorageService.getRefreshToken()
+  );
 }

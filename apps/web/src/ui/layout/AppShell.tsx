@@ -13,7 +13,7 @@ import { NavLink } from 'react-router-dom';
 import logoMark from '../../assets/shift-manager-logo-tiles-badge.png';
 
 import { UserRole } from 'api/generated/api.types';
-import { useAuth } from 'services/core/auth/AuthProvider';
+import { useAuth } from 'services/core/auth/auth.hooks';
 
 type NavigationItem = {
   path: string;

@@ -13,11 +13,13 @@ import {
 
 export type CreateOrganizationPayload =
   Api.OrganizationsControllerCreate.RequestBody;
+export type UpdateOrganizationPayload =
+  Api.OrganizationControllerUpdateOwn.RequestBody;
 export type CreateUserPayload = Api.OrganizationControllerCreateUser.RequestBody;
 export type UpdateUserPayload = Api.OrganizationControllerUpdateUser.RequestBody;
 export type AdminUpdateUserPayload =
   Api.OrganizationsControllerUpdateUser.RequestBody;
-type CreateUserResponse = {
+export type CreateUserResponse = {
   user: OrganizationUser;
   credentials: { login: string };
 };

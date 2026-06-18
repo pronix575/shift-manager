@@ -1,15 +1,15 @@
 import { Spinner } from '@heroui/react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 
-import { useAuth } from 'services/core/auth/AuthProvider';
+import { useAuth } from 'services/core/auth/auth.hooks';
+import { LoginContainer } from 'services/core/auth/loginService';
+import { AdminOrganizationsContainer } from 'services/domains/organization/adminOrganizationsService';
+import { EmployeesContainer } from 'services/domains/organization/employeesService';
+import { OrganizationSettingsContainer } from 'services/domains/organization/organizationSettingsService';
+import { DashboardContainer } from 'services/domains/shifts/dashboardService';
+import { MyShiftsContainer } from 'services/domains/shifts/myShiftsService';
+import { ShiftsRegistryContainer } from 'services/domains/shifts/shiftsRegistryService';
 import { AppShell } from 'ui/layout/AppShell';
-import { AdminOrganizationsPage } from 'ui/pages/AdminOrganizationsPage';
-import { DashboardPage } from 'ui/pages/DashboardPage';
-import { EmployeesPage } from 'ui/pages/EmployeesPage';
-import { LoginPage } from 'ui/pages/LoginPage';
-import { MyShiftsPage } from 'ui/pages/MyShiftsPage';
-import { OrganizationSettingsPage } from 'ui/pages/OrganizationSettingsPage';
-import { ShiftsRegistryPage } from 'ui/pages/ShiftsRegistryPage';
 
 export function AppRouter() {
   const { isAuthenticated, isInitialized, user } = useAuth();
@@ -25,7 +25,7 @@ export function AppRouter() {
   if (!isAuthenticated || !user) {
     return (
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path="/login" element={<LoginContainer />} />
         <Route path="*" element={<Navigate replace to="/login" />} />
       </Routes>
     );
@@ -35,15 +35,15 @@ export function AppRouter() {
     <AppShell>
       <Routes>
         <Route path="/" element={<Navigate replace to={getDefaultRoute(user.role)} />} />
-        <Route path="/dashboard" element={<DashboardPage />} />
-        <Route path="/my-shifts" element={<MyShiftsPage />} />
-        <Route path="/shifts" element={<ShiftsRegistryPage />} />
-        <Route path="/employees" element={<EmployeesPage />} />
-        <Route path="/organization" element={<OrganizationSettingsPage />} />
-        <Route path="/admin/organizations" element={<AdminOrganizationsPage />} />
+        <Route path="/dashboard" element={<DashboardContainer />} />
+        <Route path="/my-shifts" element={<MyShiftsContainer />} />
+        <Route path="/shifts" element={<ShiftsRegistryContainer />} />
+        <Route path="/employees" element={<EmployeesContainer />} />
+        <Route path="/organization" element={<OrganizationSettingsContainer />} />
+        <Route path="/admin/organizations" element={<AdminOrganizationsContainer />} />
         <Route
           path="/admin/organizations/:organizationId"
-          element={<AdminOrganizationsPage />}
+          element={<AdminOrganizationsContainer />}
         />
         <Route path="*" element={<Navigate replace to={getDefaultRoute(user.role)} />} />
       </Routes>

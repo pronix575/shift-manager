@@ -3,7 +3,7 @@ import { ReactNode } from 'react';
 
 import { PaginationMeta } from 'api/pagination';
 
-type DataTableColumn<T> = {
+export type DataTableColumn<T> = {
   key: string;
   label: string;
   isRowHeader?: boolean;

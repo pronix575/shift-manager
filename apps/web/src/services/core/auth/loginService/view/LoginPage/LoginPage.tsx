@@ -1,30 +1,28 @@
 import { Button, Card } from '@heroui/react';
 import { FormEvent, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 
-import logoMark from '../../assets/shift-manager-logo-tiles-badge.png';
+import logoMark from '../../../../../../assets/shift-manager-logo-tiles-badge.png';
 
-import { useAuth } from 'services/core/auth/AuthProvider';
 import { Notice } from 'ui/components/Notice';
 import { TextField } from 'ui/components/TextField';
 
-export function LoginPage() {
-  const navigate = useNavigate();
-  const { error, login } = useAuth();
+type LoginPageProps = {
+  error: string | null;
+  isLoginPending: boolean;
+  onLogin: (login: string, password: string) => Promise<void>;
+};
+
+export function LoginPage({
+  error,
+  isLoginPending,
+  onLogin,
+}: LoginPageProps) {
   const [loginValue, setLoginValue] = useState('');
   const [password, setPassword] = useState('');
-  const [isSubmitting, setSubmitting] = useState(false);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setSubmitting(true);
-
-    try {
-      await login(loginValue, password);
-      navigate('/');
-    } finally {
-      setSubmitting(false);
-    }
+    await onLogin(loginValue, password);
   }
 
   return (
@@ -82,7 +80,7 @@ export function LoginPage() {
                 type="submit"
                 className="mt-6"
                 fullWidth
-                isDisabled={isSubmitting}
+                isDisabled={isLoginPending}
                 variant="primary"
               >
                 Войти
