@@ -1,4 +1,5 @@
-import { Button, Card } from '@heroui/react';
+import { Button, Card, Tooltip } from '@heroui/react';
+import { Eye, EyeOff } from 'lucide-react';
 import { FormEvent, useState } from 'react';
 
 import logoMark from '../../../../../../assets/shift-manager-logo-tiles-badge.png';
@@ -19,6 +20,10 @@ export function LoginPage({
 }: LoginPageProps) {
   const [loginValue, setLoginValue] = useState('');
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const passwordVisibilityLabel = isPasswordVisible
+    ? 'Скрыть пароль'
+    : 'Показать пароль';
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -39,7 +44,7 @@ export function LoginPage({
             Shift Manager
           </h1>
           <p className="mt-5 max-w-md text-lg leading-8 text-slate-200">
-            Управление сменами, сотрудниками и выгрузками организации.
+            Управление сменами
           </p>
         </div>
       </section>
@@ -62,13 +67,40 @@ export function LoginPage({
                   value={loginValue}
                   onChange={(event) => setLoginValue(event.target.value)}
                   autoComplete="username"
+                  placeholder="Введите логин"
                 />
                 <TextField
                   label="Пароль"
-                  type="password"
+                  type={isPasswordVisible ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   autoComplete="current-password"
+                  placeholder="Введите пароль"
+                  endAdornment={
+                    <Tooltip>
+                      <Button
+                        type="button"
+                        aria-label={passwordVisibilityLabel}
+                        aria-pressed={isPasswordVisible}
+                        isIconOnly
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 text-slate-500"
+                        onClick={() =>
+                          setIsPasswordVisible((isVisible) => !isVisible)
+                        }
+                      >
+                        {isPasswordVisible ? (
+                          <EyeOff size={18} aria-hidden="true" />
+                        ) : (
+                          <Eye size={18} aria-hidden="true" />
+                        )}
+                      </Button>
+                      <Tooltip.Content>
+                        {passwordVisibilityLabel}
+                      </Tooltip.Content>
+                    </Tooltip>
+                  }
                 />
               </div>
               {error && (
