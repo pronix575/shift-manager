@@ -4,9 +4,15 @@ import { FormEvent, useEffect, useState } from 'react';
 
 import { Shift } from 'api/generated/api.types';
 import {
+  DEFAULT_PAGE,
+  DEFAULT_PER_PAGE,
+  getEmptyPaginatedResponse,
+  PaginationQuery,
+} from 'api/pagination';
+import {
   exportShiftsRequest,
   listShiftsRequest,
-  ShiftQuery,
+  ShiftFilterQuery,
 } from 'api/shifts.api';
 import { readApiError } from 'api/http/client';
 import {
@@ -21,12 +27,26 @@ import { Panel } from 'ui/components/Panel';
 import { StatusPill } from 'ui/components/StatusPill';
 
 export function ShiftsRegistryPage() {
-  const [query, setQuery] = useState<ShiftQuery>({});
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [query, setQuery] = useState<ShiftFilterQuery>({});
+  const [pagination, setPagination] = useState<PaginationQuery>({
+    page: DEFAULT_PAGE,
+    perPage: DEFAULT_PER_PAGE,
+  });
+  const [shiftsPage, setShiftsPage] = useState(() =>
+    getEmptyPaginatedResponse<Shift>(),
+  );
   const [error, setError] = useState<string | null>(null);
 
-  async function load(nextQuery = query) {
-    setShifts(await listShiftsRequest(nextQuery));
+  async function load(nextQuery = query, nextPagination = pagination) {
+    const response = await listShiftsRequest({
+      ...nextQuery,
+      ...nextPagination,
+    });
+    setShiftsPage(response);
+    setPagination({
+      page: response.meta.page,
+      perPage: response.meta.perPage,
+    });
   }
 
   useEffect(() => {
@@ -40,7 +60,17 @@ export function ShiftsRegistryPage() {
     setError(null);
 
     try {
-      await load(query);
+      await load(query, { page: DEFAULT_PAGE, perPage: pagination.perPage });
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    }
+  }
+
+  async function handlePageChange(page: number) {
+    setError(null);
+
+    try {
+      await load(query, { ...pagination, page });
     } catch (requestError) {
       setError(await readApiError(requestError));
     }
@@ -148,7 +178,11 @@ export function ShiftsRegistryPage() {
             },
           ]}
           getRowKey={(shift) => shift.id}
-          rows={shifts}
+          pagination={{
+            meta: shiftsPage.meta,
+            onPageChange: (page) => void handlePageChange(page),
+          }}
+          rows={shiftsPage.items}
         />
       </Panel>
     </div>

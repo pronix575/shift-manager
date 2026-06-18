@@ -1,40 +1,79 @@
 import { Button } from '@heroui/react';
-import { Archive, Link2, Plus, Save } from 'lucide-react';
+import { Archive, Pencil, Plus, Save } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 
-import { createTelegramLinkCodeRequest } from 'api/auth.api';
 import { Department, Organization } from 'api/generated/api.types';
+import {
+  DEFAULT_PAGE,
+  DEFAULT_PER_PAGE,
+  getEmptyPaginatedResponse,
+  PaginationQuery,
+} from 'api/pagination';
 import {
   archiveDepartmentRequest,
   createDepartmentRequest,
   getOrganizationRequest,
-  listDepartmentsRequest,
+  listDepartmentsPageRequest,
+  updateDepartmentRequest,
   updateOrganizationRequest,
 } from 'api/organization.api';
 import { readApiError } from 'api/http/client';
+import { ActionModal } from 'ui/components/ActionModal';
+import { ButtonSpinner } from 'ui/components/ButtonSpinner';
 import { DataTable } from 'ui/components/DataTable';
 import { Notice } from 'ui/components/Notice';
 import { Panel } from 'ui/components/Panel';
 import { TextField } from 'ui/components/TextField';
 
+type DepartmentModalState = {
+  type: 'editDepartment';
+  department: Department;
+} | null;
+
 export function OrganizationSettingsPage() {
   const [organization, setOrganization] = useState<Organization | null>(null);
-  const [departments, setDepartments] = useState<Department[]>([]);
+  const [departmentsPage, setDepartmentsPage] = useState(() =>
+    getEmptyPaginatedResponse<Department>(),
+  );
+  const [departmentsPagination, setDepartmentsPagination] =
+    useState<PaginationQuery>({
+      page: DEFAULT_PAGE,
+      perPage: DEFAULT_PER_PAGE,
+    });
   const [name, setName] = useState('');
   const [timezone, setTimezone] = useState('Europe/Moscow');
   const [departmentName, setDepartmentName] = useState('');
+  const [editDepartmentName, setEditDepartmentName] = useState('');
+  const [departmentModal, setDepartmentModal] =
+    useState<DepartmentModalState>(null);
+  const [isUpdatingDepartment, setIsUpdatingDepartment] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(nextDepartmentsPagination = departmentsPagination) {
     const [nextOrganization, nextDepartments] = await Promise.all([
       getOrganizationRequest(),
-      listDepartmentsRequest(),
+      listDepartmentsPageRequest(nextDepartmentsPagination),
     ]);
     setOrganization(nextOrganization);
-    setDepartments(nextDepartments);
+    setDepartmentsPage(nextDepartments);
+    setDepartmentsPagination({
+      page: nextDepartments.meta.page,
+      perPage: nextDepartments.meta.perPage,
+    });
     setName(nextOrganization.name);
     setTimezone(nextOrganization.timezone);
+  }
+
+  async function loadDepartmentsPage(nextDepartmentsPagination: PaginationQuery) {
+    const nextDepartments = await listDepartmentsPageRequest(
+      nextDepartmentsPagination,
+    );
+    setDepartmentsPage(nextDepartments);
+    setDepartmentsPagination({
+      page: nextDepartments.meta.page,
+      perPage: nextDepartments.meta.perPage,
+    });
   }
 
   useEffect(() => {
@@ -53,30 +92,76 @@ export function OrganizationSettingsPage() {
   async function createDepartment(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    await createDepartmentRequest(departmentName);
-    setDepartmentName('');
-    await load();
+    setMessage(null);
+
+    try {
+      await createDepartmentRequest(departmentName);
+      setDepartmentName('');
+      await load();
+      setMessage('Департамент создан');
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    }
   }
 
-  async function createTelegramCode() {
-    const code = await createTelegramLinkCodeRequest();
-    setMessage(`Код Telegram: ${code.code}`);
+  function openEditDepartmentModal(department: Department) {
+    setEditDepartmentName(department.name);
+    setDepartmentModal({ type: 'editDepartment', department });
+  }
+
+  function closeDepartmentModal() {
+    setDepartmentModal(null);
+  }
+
+  function handleDepartmentModalOpenChange(isOpen: boolean) {
+    if (!isOpen) {
+      closeDepartmentModal();
+    }
+  }
+
+  async function updateDepartment(event: FormEvent) {
+    event.preventDefault();
+
+    if (departmentModal?.type !== 'editDepartment') {
+      return;
+    }
+
+    setError(null);
+    setMessage(null);
+    setIsUpdatingDepartment(true);
+
+    try {
+      await updateDepartmentRequest(
+        departmentModal.department.id,
+        editDepartmentName,
+      );
+      setEditDepartmentName('');
+      await load();
+      setMessage('Департамент обновлен');
+      closeDepartmentModal();
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    } finally {
+      setIsUpdatingDepartment(false);
+    }
+  }
+
+  async function handleDepartmentsPageChange(page: number) {
+    setError(null);
+
+    try {
+      await loadDepartmentsPage({ ...departmentsPagination, page });
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    }
   }
 
   return (
     <div className="space-y-5">
       <h1 className="text-3xl font-semibold text-slate-950">Организация</h1>
 
-      {message && (
-        <Notice tone="success">
-          {message}
-        </Notice>
-      )}
-      {error && (
-        <Notice tone="danger">
-          {error}
-        </Notice>
-      )}
+      {message && <Notice tone="success">{message}</Notice>}
+      {error && <Notice tone="danger">{error}</Notice>}
 
       <Panel title="Профиль">
         <form
@@ -98,14 +183,6 @@ export function OrganizationSettingsPage() {
             Сохранить
           </Button>
         </form>
-        <Button
-          className="mt-4"
-          onClick={() => void createTelegramCode()}
-          variant="secondary"
-        >
-          <Link2 size={16} />
-          Код Telegram
-        </Button>
         {organization && (
           <p className="mt-4 text-sm text-slate-500">
             Статус: {organization.status}
@@ -147,23 +224,85 @@ export function OrganizationSettingsPage() {
               label: '',
               align: 'right',
               render: (department) => (
-                <Button
-                  isIconOnly
-                  size="sm"
-                  variant="danger-soft"
-                  onClick={() =>
-                    void archiveDepartmentRequest(department.id).then(() => load())
-                  }
-                >
-                  <Archive size={14} />
-                </Button>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    isIconOnly
+                    aria-label="Редактировать департамент"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => openEditDepartmentModal(department)}
+                  >
+                    <Pencil size={14} />
+                  </Button>
+                  <Button
+                    isIconOnly
+                    aria-label="Архивировать департамент"
+                    size="sm"
+                    variant="danger-soft"
+                    onClick={() =>
+                      void archiveDepartmentRequest(department.id).then(() =>
+                        load(),
+                      )
+                    }
+                  >
+                    <Archive size={14} />
+                  </Button>
+                </div>
               ),
             },
           ]}
           getRowKey={(department) => department.id}
-          rows={departments}
+          pagination={{
+            meta: departmentsPage.meta,
+            onPageChange: (page) => void handleDepartmentsPageChange(page),
+          }}
+          rows={departmentsPage.items}
         />
       </Panel>
+
+      <ActionModal
+        isOpen={departmentModal?.type === 'editDepartment'}
+        title="Редактировать департамент"
+        size="sm"
+        onOpenChange={handleDepartmentModalOpenChange}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={closeDepartmentModal}
+            >
+              Отмена
+            </Button>
+            <Button
+              form="edit-department-form"
+              type="submit"
+              isDisabled={isUpdatingDepartment}
+              variant="primary"
+            >
+              {isUpdatingDepartment ? (
+                <ButtonSpinner />
+              ) : (
+                <Pencil size={16} />
+              )}
+              Сохранить
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="edit-department-form"
+          className="space-y-4"
+          onSubmit={(event) => void updateDepartment(event)}
+        >
+          <TextField
+            required
+            label="Название департамента"
+            value={editDepartmentName}
+            onChange={(event) => setEditDepartmentName(event.target.value)}
+          />
+        </form>
+      </ActionModal>
     </div>
   );
 }

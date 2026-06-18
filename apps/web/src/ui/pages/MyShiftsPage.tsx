@@ -1,9 +1,14 @@
 import { Button } from '@heroui/react';
-import { Link2, Play, Square } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Play, Square } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
-import { createTelegramLinkCodeRequest } from 'api/auth.api';
 import type { Shift } from 'api/generated/api.types';
+import {
+  DEFAULT_PAGE,
+  DEFAULT_PER_PAGE,
+  getEmptyPaginatedResponse,
+  PaginationQuery,
+} from 'api/pagination';
 import {
   finishShiftRequest,
   listMyShiftsRequest,
@@ -36,19 +41,39 @@ const elapsedTimerUnits = [
 
 export function MyShiftsPage() {
   const { user } = useAuth();
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [shiftsPage, setShiftsPage] = useState(() =>
+    getEmptyPaginatedResponse<Shift>(),
+  );
+  const [pagination, setPagination] = useState<PaginationQuery>({
+    page: DEFAULT_PAGE,
+    perPage: DEFAULT_PER_PAGE,
+  });
+  const [openShift, setOpenShift] = useState<Shift | null>(null);
   const [departmentId, setDepartmentId] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const openShift = useMemo(
-    () => shifts.find((shift) => shift.status === 'OPEN'),
-    [shifts],
-  );
 
-  async function load() {
-    setShifts(await listMyShiftsRequest());
+  async function load(nextPagination = pagination) {
+    const response = await listMyShiftsRequest(nextPagination);
+
+    setShiftsPage(response);
+    setPagination({
+      page: response.meta.page,
+      perPage: response.meta.perPage,
+    });
+
+    if (response.meta.page === DEFAULT_PAGE) {
+      setOpenShift(response.items.find((shift) => shift.status === 'OPEN') ?? null);
+      return;
+    }
+
+    const firstPage = await listMyShiftsRequest({
+      page: DEFAULT_PAGE,
+      perPage: 1,
+    });
+    setOpenShift(firstPage.items.find((shift) => shift.status === 'OPEN') ?? null);
   }
 
   useEffect(() => {
@@ -83,22 +108,19 @@ export function MyShiftsPage() {
     }
   }
 
-  async function createTelegramCode() {
-    await runAction(async () => {
-      const code = await createTelegramLinkCodeRequest();
-      setMessage(`Код Telegram: ${code.code}`);
-    });
+  async function handlePageChange(page: number) {
+    setError(null);
+
+    try {
+      await load({ ...pagination, page });
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    }
   }
 
   return (
     <div className="space-y-5">
-      <div className="flex justify-between">
-        <h1 className="text-3xl font-semibold text-slate-950">Мои смены</h1>
-        <Button variant="secondary" onClick={() => void createTelegramCode()}>
-          <Link2 size={16} />
-          Telegram
-        </Button>
-      </div>
+      <h1 className="text-3xl font-semibold text-slate-950">Мои смены</h1>
 
       <Panel>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
@@ -177,7 +199,14 @@ export function MyShiftsPage() {
 
       <Panel title="История">
         <div className="md:hidden">
-          <MyShiftHistoryList shifts={shifts} />
+          <MyShiftHistoryList
+            pagination={{
+              ariaLabel: 'История смен',
+              meta: shiftsPage.meta,
+              onPageChange: (page) => void handlePageChange(page),
+            }}
+            shifts={shiftsPage.items}
+          />
         </div>
         <div className="hidden md:block">
           <DataTable
@@ -217,7 +246,11 @@ export function MyShiftsPage() {
               },
             ]}
             getRowKey={(shift) => shift.id}
-            rows={shifts}
+            pagination={{
+              meta: shiftsPage.meta,
+              onPageChange: (page) => void handlePageChange(page),
+            }}
+            rows={shiftsPage.items}
           />
         </div>
       </Panel>

@@ -8,11 +8,25 @@ import { ConfigService } from '@nestjs/config';
 
 import { CurrentUser } from 'core/auth/current-user.types';
 import { canWorkWithOwnShifts } from 'core/auth/role-policy';
+import {
+  buildPaginatedResult,
+  getPaginationRange,
+  type PaginatedResult,
+  type PaginationParams,
+} from 'core/pagination/pagination';
 import { PrismaService } from 'core/prisma/prisma.service';
 import { XlsxExportService } from 'core/xlsx/xlsx-export.service';
+import type { Prisma } from 'generated/prisma/client';
 import { ShiftSource, ShiftStatus, UserRole, UserStatus } from 'generated/prisma/enums';
 
 import { canEmployeeEditShift } from './shift-policy';
+
+const shiftInclude = {
+  employee: true,
+  department: true,
+} as const;
+
+type ShiftListItem = Prisma.ShiftGetPayload<{ include: typeof shiftInclude }>;
 
 export type ShiftFilter = {
   from?: Date;
@@ -42,17 +56,49 @@ export class ShiftsService {
     private readonly xlsxExportService: XlsxExportService,
   ) {}
 
-  async listForManager(actor: CurrentUser, filter: ShiftFilter) {
+  async listForManager(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+  ): Promise<ShiftListItem[]>;
+  async listForManager(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+    pagination: PaginationParams,
+  ): Promise<PaginatedResult<ShiftListItem>>;
+  async listForManager(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+    pagination?: PaginationParams,
+  ): Promise<ShiftListItem[] | PaginatedResult<ShiftListItem>> {
     const organizationId = this.getManagerOrganizationId(actor);
 
-    return this.findShifts(organizationId, filter);
+    return pagination
+      ? this.findShifts(organizationId, filter, pagination)
+      : this.findShifts(organizationId, filter);
   }
 
-  async listForEmployee(actor: CurrentUser, filter: ShiftFilter) {
-    return this.findShifts(actor.organizationId, {
+  async listForEmployee(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+  ): Promise<ShiftListItem[]>;
+  async listForEmployee(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+    pagination: PaginationParams,
+  ): Promise<PaginatedResult<ShiftListItem>>;
+  async listForEmployee(
+    actor: CurrentUser,
+    filter: ShiftFilter,
+    pagination?: PaginationParams,
+  ): Promise<ShiftListItem[] | PaginatedResult<ShiftListItem>> {
+    const employeeFilter = {
       ...filter,
       employeeId: actor.id,
-    });
+    };
+
+    return pagination
+      ? this.findShifts(actor.organizationId, employeeFilter, pagination)
+      : this.findShifts(actor.organizationId, employeeFilter);
   }
 
   async startShift(actor: CurrentUser, input: StartShiftInput = {}) {
@@ -204,7 +250,8 @@ export class ShiftsService {
 
   async exportXlsx(actor: CurrentUser, filter: ShiftFilter) {
     const maxRows = this.configService.getOrThrow<number>('XLSX_EXPORT_MAX_ROWS');
-    const shifts = await this.listForManager(actor, filter);
+    const organizationId = this.getManagerOrganizationId(actor);
+    const shifts = await this.findShifts(organizationId, filter);
 
     if (shifts.length > maxRows) {
       throw new BadRequestException(`Выгрузка ограничена ${maxRows} строками`);
@@ -213,24 +260,60 @@ export class ShiftsService {
     return this.xlsxExportService.buildShiftsWorkbook(shifts);
   }
 
-  private async findShifts(organizationId: string | null, filter: ShiftFilter) {
+  private async findShifts(
+    organizationId: string | null,
+    filter: ShiftFilter,
+  ): Promise<ShiftListItem[]>;
+  private async findShifts(
+    organizationId: string | null,
+    filter: ShiftFilter,
+    pagination: PaginationParams,
+  ): Promise<PaginatedResult<ShiftListItem>>;
+  private async findShifts(
+    organizationId: string | null,
+    filter: ShiftFilter,
+    pagination?: PaginationParams,
+  ): Promise<ShiftListItem[] | PaginatedResult<ShiftListItem>> {
     if (!organizationId) {
       throw new ForbiddenException('У пользователя нет организации');
     }
 
+    const where = this.getShiftWhere(organizationId, filter);
+
+    if (pagination) {
+      const total = await this.prisma.shift.count({ where });
+      const range = getPaginationRange(pagination, total);
+      const items = await this.prisma.shift.findMany({
+        where,
+        include: this.shiftInclude,
+        orderBy: { startedAt: 'desc' },
+        skip: range.skip,
+        take: range.take,
+      });
+
+      return buildPaginatedResult(items, total, range);
+    }
+
     return this.prisma.shift.findMany({
-      where: {
-        organizationId,
-        employeeId: filter.employeeId,
-        departmentId: filter.departmentId,
-        startedAt: {
-          gte: filter.from,
-          lte: filter.to,
-        },
-      },
+      where,
       include: this.shiftInclude,
       orderBy: { startedAt: 'desc' },
     });
+  }
+
+  private getShiftWhere(
+    organizationId: string,
+    filter: ShiftFilter,
+  ): Prisma.ShiftWhereInput {
+    return {
+      organizationId,
+      employeeId: filter.employeeId,
+      departmentId: filter.departmentId,
+      startedAt: {
+        gte: filter.from,
+        lte: filter.to,
+      },
+    };
   }
 
   private async findAccessibleShift(actor: CurrentUser, shiftId: string) {
@@ -322,8 +405,5 @@ export class ShiftsService {
     };
   }
 
-  private readonly shiftInclude = {
-    employee: true,
-    department: true,
-  } as const;
+  private readonly shiftInclude = shiftInclude;
 }

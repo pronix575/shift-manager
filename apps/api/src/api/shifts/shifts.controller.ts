@@ -10,9 +10,10 @@ import { UserRole } from 'generated/prisma/enums';
 
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
-import { parseOptionalDate } from '../query.utils';
+import { PaginationQueryDto } from '../pagination.dto';
+import { parseOptionalDate, parsePagination } from '../query.utils';
 
-class ShiftQueryDto {
+class ShiftQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsISO8601()
   from?: string;
@@ -67,13 +68,21 @@ export class ShiftsController {
   @Roles(UserRole.ORG_MANAGER)
   @Get()
   list(@CurrentUserParam() actor: CurrentUser, @Query() query: ShiftQueryDto) {
-    return this.shiftsService.listForManager(actor, this.mapQuery(query));
+    return this.shiftsService.listForManager(
+      actor,
+      this.mapQuery(query),
+      parsePagination(query),
+    );
   }
 
   @Roles(...ownShiftWorkerRoles)
   @Get('me')
   listMine(@CurrentUserParam() actor: CurrentUser, @Query() query: ShiftQueryDto) {
-    return this.shiftsService.listForEmployee(actor, this.mapQuery(query));
+    return this.shiftsService.listForEmployee(
+      actor,
+      this.mapQuery(query),
+      parsePagination(query),
+    );
   }
 
   @Roles(...ownShiftWorkerRoles)

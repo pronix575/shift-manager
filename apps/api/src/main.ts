@@ -5,7 +5,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
 import { AppModule } from './app.module';
-import { getCorsOrigins } from './core/config/env';
+import { getCorsOrigin } from './core/config/env';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,7 +14,7 @@ async function bootstrap() {
 
   app.setGlobalPrefix(apiPrefix);
   app.enableCors({
-    origin: getCorsOrigins(configService.getOrThrow<string>('CORS_ORIGINS')),
+    origin: getCorsOrigin(configService.getOrThrow<string>('CORS_ORIGINS')),
     credentials: true,
   });
   app.useGlobalPipes(

@@ -1,13 +1,22 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { hash } from 'bcryptjs';
 
 import { CurrentUser } from 'core/auth/current-user.types';
 import { DepartmentsService } from 'core/departments/departments.service';
+import {
+  buildPaginatedResult,
+  getPaginationRange,
+  type PaginationParams,
+} from 'core/pagination/pagination';
 import { PrismaService } from 'core/prisma/prisma.service';
+import type { Prisma } from 'generated/prisma/client';
 import { UserRole, UserStatus } from 'generated/prisma/enums';
 
 import { buildLoginBase, getLoginCandidate } from './login-generator';
-import { generateTemporaryPassword } from './password-generator';
 
 export type CreateUserInput = {
   firstName: string;
@@ -16,12 +25,18 @@ export type CreateUserInput = {
   role: UserRole;
   organizationId?: string | null;
   departmentIds?: string[];
+  password: string;
 };
 
 export type UpdateUserInput = Partial<
   Pick<
     CreateUserInput,
-    'firstName' | 'lastName' | 'middleName' | 'role' | 'departmentIds'
+    | 'firstName'
+    | 'lastName'
+    | 'middleName'
+    | 'role'
+    | 'departmentIds'
+    | 'password'
   >
 >;
 
@@ -32,21 +47,50 @@ export class UsersService {
     private readonly departmentsService: DepartmentsService,
   ) {}
 
-  async listOrganizationUsers(actor: CurrentUser) {
+  async listOrganizationUsers(
+    actor: CurrentUser,
+    pagination?: PaginationParams,
+  ) {
     const organizationId = this.getActorOrganizationId(actor);
 
-    return this.listUsersByOrganizationId(organizationId);
+    return this.listUsersByOrganizationId(organizationId, pagination);
   }
 
-  async listUsersByOrganizationId(organizationId: string) {
-    return this.prisma.user.findMany({
-      where: { organizationId, status: UserStatus.ACTIVE },
-      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-      include: {
-        password: { select: { login: true, mustChangePassword: true } },
-        telegram: { select: { telegramId: true, username: true, linkedAt: true } },
-        departments: { include: { department: true } },
+  async listUsersByOrganizationId(
+    organizationId: string,
+    pagination?: PaginationParams,
+  ) {
+    const where = { organizationId, status: UserStatus.ACTIVE };
+    const orderBy = [
+      { lastName: 'asc' },
+      { firstName: 'asc' },
+    ] satisfies Prisma.UserFindManyArgs['orderBy'];
+    const include = {
+      password: { select: { login: true, mustChangePassword: true } },
+      telegram: {
+        select: { telegramId: true, username: true, linkedAt: true },
       },
+      departments: { include: { department: true } },
+    } as const;
+
+    if (pagination) {
+      const total = await this.prisma.user.count({ where });
+      const range = getPaginationRange(pagination, total);
+      const items = await this.prisma.user.findMany({
+        where,
+        orderBy,
+        include,
+        skip: range.skip,
+        take: range.take,
+      });
+
+      return buildPaginatedResult(items, total, range);
+    }
+
+    return this.prisma.user.findMany({
+      where,
+      orderBy,
+      include,
     });
   }
 
@@ -61,9 +105,11 @@ export class UsersService {
       );
     }
 
-    const login = await this.generateUniqueLogin(input.lastName, input.firstName);
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await hash(temporaryPassword, 12);
+    const login = await this.generateUniqueLogin(
+      input.lastName,
+      input.firstName,
+    );
+    const passwordHash = await hash(input.password, 12);
 
     const user = await this.prisma.user.create({
       data: {
@@ -76,7 +122,8 @@ export class UsersService {
           create: {
             login,
             passwordHash,
-            mustChangePassword: true,
+            mustChangePassword: false,
+            lastPasswordChangeAt: new Date(),
           },
         },
         departments: {
@@ -100,7 +147,7 @@ export class UsersService {
       },
     });
 
-    return { user, credentials: { login, temporaryPassword } };
+    return { user, credentials: { login } };
   }
 
   async updateOrganizationUser(
@@ -133,7 +180,9 @@ export class UsersService {
     const user = await this.getActiveUserInOrganization(userId, organizationId);
 
     if (input.role === UserRole.ADMIN) {
-      throw new ForbiddenException('Нельзя назначить роль админа пользователю организации');
+      throw new ForbiddenException(
+        'Нельзя назначить роль админа пользователю организации',
+      );
     }
 
     if (input.departmentIds) {
@@ -143,6 +192,9 @@ export class UsersService {
       );
     }
 
+    const passwordHash =
+      input.password === undefined ? null : await hash(input.password, 12);
+
     return this.prisma.$transaction(async (tx) => {
       if (input.departmentIds) {
         await tx.userDepartment.deleteMany({ where: { userId } });
@@ -151,6 +203,17 @@ export class UsersService {
             userId,
             departmentId,
           })),
+        });
+      }
+
+      if (passwordHash !== null) {
+        await tx.passwordIdentity.update({
+          where: { userId },
+          data: {
+            passwordHash,
+            mustChangePassword: false,
+            lastPasswordChangeAt: new Date(),
+          },
         });
       }
 
@@ -179,7 +242,7 @@ export class UsersService {
           action: 'UPDATE',
           entityType: 'User',
           entityId: userId,
-          details: input,
+          details: this.getUserUpdateAuditDetails(input, passwordHash !== null),
         },
       });
 
@@ -228,53 +291,6 @@ export class UsersService {
     });
   }
 
-  async resetPassword(actor: CurrentUser, userId: string) {
-    const organizationId = this.getActorOrganizationId(actor);
-
-    return this.resetPasswordInOrganization(actor, organizationId, userId);
-  }
-
-  async resetPasswordByOrganizationId(
-    actor: CurrentUser,
-    organizationId: string,
-    userId: string,
-  ) {
-    this.assertAdmin(actor);
-
-    return this.resetPasswordInOrganization(actor, organizationId, userId);
-  }
-
-  private async resetPasswordInOrganization(
-    actor: CurrentUser,
-    organizationId: string,
-    userId: string,
-  ) {
-    await this.getActiveUserInOrganization(userId, organizationId);
-    const temporaryPassword = generateTemporaryPassword();
-    const passwordHash = await hash(temporaryPassword, 12);
-
-    await this.prisma.passwordIdentity.update({
-      where: { userId },
-      data: {
-        passwordHash,
-        mustChangePassword: true,
-        lastPasswordChangeAt: new Date(),
-      },
-    });
-
-    await this.prisma.auditLog.create({
-      data: {
-        organizationId,
-        actorId: actor.id,
-        action: 'RESET_PASSWORD',
-        entityType: 'User',
-        entityId: userId,
-      },
-    });
-
-    return { temporaryPassword };
-  }
-
   private async generateUniqueLogin(lastName: string, firstName: string) {
     const base = buildLoginBase(lastName, firstName);
 
@@ -293,6 +309,24 @@ export class UsersService {
     throw new Error('Не удалось сгенерировать уникальный логин');
   }
 
+  private getUserUpdateAuditDetails(
+    input: UpdateUserInput,
+    passwordChanged: boolean,
+  ) {
+    return {
+      ...(input.firstName !== undefined ? { firstName: input.firstName } : {}),
+      ...(input.lastName !== undefined ? { lastName: input.lastName } : {}),
+      ...(input.middleName !== undefined
+        ? { middleName: input.middleName }
+        : {}),
+      ...(input.role !== undefined ? { role: input.role } : {}),
+      ...(input.departmentIds !== undefined
+        ? { departmentIds: input.departmentIds }
+        : {}),
+      ...(passwordChanged ? { passwordChanged: true } : {}),
+    } satisfies Prisma.InputJsonObject;
+  }
+
   private resolveOrganizationForNewUser(
     actor: CurrentUser,
     input: CreateUserInput,
@@ -303,7 +337,9 @@ export class UsersService {
       }
 
       if (!input.organizationId) {
-        throw new ForbiddenException('Для пользователя организации нужна организация');
+        throw new ForbiddenException(
+          'Для пользователя организации нужна организация',
+        );
       }
 
       return input.organizationId;
@@ -320,7 +356,10 @@ export class UsersService {
     throw new ForbiddenException('Недостаточно прав для создания пользователя');
   }
 
-  private async getActiveUserInOrganization(userId: string, organizationId: string) {
+  private async getActiveUserInOrganization(
+    userId: string,
+    organizationId: string,
+  ) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, organizationId, status: UserStatus.ACTIVE },
     });

@@ -1,5 +1,5 @@
 import { Button } from '@heroui/react';
-import { Archive, KeyRound, Pencil, Plus, RefreshCcw } from 'lucide-react';
+import { Archive, Pencil, Plus, RefreshCcw } from 'lucide-react';
 import { FormEvent, useEffect, useState } from 'react';
 
 import {
@@ -8,16 +8,23 @@ import {
   UserRole,
 } from 'api/generated/api.types';
 import {
+  DEFAULT_PAGE,
+  DEFAULT_PER_PAGE,
+  getEmptyPaginatedResponse,
+  PaginationQuery,
+} from 'api/pagination';
+import {
   archiveUserRequest,
   createUserRequest,
   listDepartmentsRequest,
-  listUsersRequest,
-  resetPasswordRequest,
+  listUsersPageRequest,
   updateUserRequest,
 } from 'api/organization.api';
 import { readApiError } from 'api/http/client';
+import { generateUserPassword } from 'services/core/password/passwordGenerator';
 import { formatPersonName } from 'services/domains/shifts/shiftFormat';
 import { ActionModal } from 'ui/components/ActionModal';
+import { ButtonSpinner } from 'ui/components/ButtonSpinner';
 import { DataTable } from 'ui/components/DataTable';
 import { MultiSelectField } from 'ui/components/MultiSelectField';
 import { Notice } from 'ui/components/Notice';
@@ -25,18 +32,19 @@ import { Panel } from 'ui/components/Panel';
 import { SelectField } from 'ui/components/SelectField';
 import { StatusPill } from 'ui/components/StatusPill';
 import { TextField } from 'ui/components/TextField';
+import { UserPasswordField } from 'ui/components/UserPasswordField';
 
 type UserForm = {
   firstName: string;
   lastName: string;
   middleName: string;
+  password: string;
   role: Exclude<UserRole, 'ADMIN'>;
   departmentIds: string[];
 };
 
 type EmployeeModalState =
   | { type: 'editUser'; user: OrganizationUser }
-  | { type: 'resetPassword'; user: OrganizationUser }
   | { type: 'archiveUser'; user: OrganizationUser }
   | null;
 
@@ -58,6 +66,7 @@ function getEmptyUserForm(): UserForm {
     firstName: '',
     lastName: '',
     middleName: '',
+    password: '',
     role: 'EMPLOYEE',
     departmentIds: [],
   };
@@ -71,30 +80,53 @@ function getEditableRole(user: OrganizationUser): Exclude<UserRole, 'ADMIN'> {
   return user.role === 'ORG_MANAGER' ? 'ORG_MANAGER' : 'EMPLOYEE';
 }
 
+function getUserUpdatePayload(form: UserForm) {
+  const { password, ...payload } = form;
+
+  return password ? { ...payload, password } : payload;
+}
+
 export function EmployeesPage() {
-  const [users, setUsers] = useState<OrganizationUser[]>([]);
+  const [usersPage, setUsersPage] = useState(() =>
+    getEmptyPaginatedResponse<OrganizationUser>(),
+  );
+  const [usersPagination, setUsersPagination] = useState<PaginationQuery>({
+    page: DEFAULT_PAGE,
+    perPage: DEFAULT_PER_PAGE,
+  });
   const [departments, setDepartments] = useState<Department[]>([]);
   const [form, setForm] = useState(getEmptyUserForm);
   const [editForm, setEditForm] = useState(getEmptyUserForm);
   const [modal, setModal] = useState<EmployeeModalState>(null);
+  const [submittingModal, setSubmittingModal] =
+    useState<EmployeeModalType | null>(null);
   const [credentials, setCredentials] = useState<{
     login?: string;
-    temporaryPassword?: string;
-  } | null>(null);
-  const [passwordResetResult, setPasswordResetResult] = useState<{
-    login?: string;
-    temporaryPassword: string;
+    password?: string;
   } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(nextUsersPagination = usersPagination) {
     const [nextUsers, nextDepartments] = await Promise.all([
-      listUsersRequest(),
+      listUsersPageRequest(nextUsersPagination),
       listDepartmentsRequest(),
     ]);
-    setUsers(nextUsers);
+    setUsersPage(nextUsers);
+    setUsersPagination({
+      page: nextUsers.meta.page,
+      perPage: nextUsers.meta.perPage,
+    });
     setDepartments(nextDepartments);
+  }
+
+  async function loadUsersPage(nextUsersPagination: PaginationQuery) {
+    const nextUsers = await listUsersPageRequest(nextUsersPagination);
+    setUsersPage(nextUsers);
+    setUsersPagination({
+      page: nextUsers.meta.page,
+      perPage: nextUsers.meta.perPage,
+    });
   }
 
   useEffect(() => {
@@ -105,6 +137,10 @@ export function EmployeesPage() {
 
   function isModalOpen(type: EmployeeModalType) {
     return modal?.type === type;
+  }
+
+  function isModalSubmitting(type: EmployeeModalType) {
+    return submittingModal === type;
   }
 
   function closeModal() {
@@ -122,15 +158,11 @@ export function EmployeesPage() {
       firstName: user.firstName,
       lastName: user.lastName,
       middleName: user.middleName ?? '',
+      password: '',
       role: getEditableRole(user),
       departmentIds: getUserDepartmentIds(user),
     });
     setModal({ type: 'editUser', user });
-  }
-
-  function openResetPasswordModal(user: OrganizationUser) {
-    setPasswordResetResult(null);
-    setModal({ type: 'resetPassword', user });
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -140,8 +172,12 @@ export function EmployeesPage() {
     setCredentials(null);
 
     try {
+      const userPassword = form.password;
       const response = await createUserRequest(form);
-      setCredentials(response.credentials);
+      setCredentials({
+        login: response.credentials.login,
+        password: userPassword,
+      });
       setForm(getEmptyUserForm());
       await load();
     } catch (requestError) {
@@ -159,35 +195,19 @@ export function EmployeesPage() {
     setError(null);
     setMessage(null);
     setCredentials(null);
+    setSubmittingModal('editUser');
 
     try {
-      await updateUserRequest(modal.user.id, editForm);
+      await updateUserRequest(modal.user.id, getUserUpdatePayload(editForm));
       await load();
       setMessage('Пользователь обновлен');
       closeModal();
     } catch (requestError) {
       setError(await readApiError(requestError));
-    }
-  }
-
-  async function resetUserPassword() {
-    if (modal?.type !== 'resetPassword') {
-      return;
-    }
-
-    setError(null);
-    setCredentials(null);
-    setPasswordResetResult(null);
-
-    try {
-      const response = await resetPasswordRequest(modal.user.id);
-      setPasswordResetResult({
-        login: modal.user.password?.login ?? undefined,
-        temporaryPassword: response.temporaryPassword,
-      });
-      await load();
-    } catch (requestError) {
-      setError(await readApiError(requestError));
+    } finally {
+      setSubmittingModal((current) =>
+        current === 'editUser' ? null : current,
+      );
     }
   }
 
@@ -199,12 +219,27 @@ export function EmployeesPage() {
     setError(null);
     setMessage(null);
     setCredentials(null);
+    setSubmittingModal('archiveUser');
 
     try {
       await archiveUserRequest(modal.user.id);
       await load();
       setMessage('Пользователь отправлен в архив');
       closeModal();
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    } finally {
+      setSubmittingModal((current) =>
+        current === 'archiveUser' ? null : current,
+      );
+    }
+  }
+
+  async function handleUsersPageChange(page: number) {
+    setError(null);
+
+    try {
+      await loadUsersPage({ ...usersPagination, page });
     } catch (requestError) {
       setError(await readApiError(requestError));
     }
@@ -230,7 +265,7 @@ export function EmployeesPage() {
 
       <Panel title="Создать аккаунт">
         <form
-          className="grid items-end gap-3 lg:grid-cols-[1fr_1fr_1fr_180px_1fr_auto]"
+          className="grid items-end gap-3 md:grid-cols-2"
           onSubmit={(event) => void handleSubmit(event)}
         >
           <TextField
@@ -276,6 +311,19 @@ export function EmployeesPage() {
               }))
             }
           />
+          <UserPasswordField
+            required
+            className="md:col-span-2"
+            label="Пароль"
+            value={form.password}
+            onChange={(password) => setForm((prev) => ({ ...prev, password }))}
+            onGenerate={() =>
+              setForm((prev) => ({
+                ...prev,
+                password: generateUserPassword(),
+              }))
+            }
+          />
           <Button type="submit" variant="primary">
             <Plus size={16} />
             Создать
@@ -285,9 +333,7 @@ export function EmployeesPage() {
           <Notice tone="success" className="mt-4">
             {[
               credentials.login ? `Логин: ${credentials.login}.` : '',
-              credentials.temporaryPassword
-                ? `Пароль: ${credentials.temporaryPassword}`
-                : '',
+              credentials.password ? `Пароль: ${credentials.password}` : '',
             ]
               .filter(Boolean)
               .join(' ')}
@@ -349,15 +395,6 @@ export function EmployeesPage() {
                   </Button>
                   <Button
                     isIconOnly
-                    aria-label="Сменить пароль"
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => openResetPasswordModal(user)}
-                  >
-                    <KeyRound size={14} />
-                  </Button>
-                  <Button
-                    isIconOnly
                     aria-label="Архивировать пользователя"
                     size="sm"
                     variant="danger-soft"
@@ -370,7 +407,11 @@ export function EmployeesPage() {
             },
           ]}
           getRowKey={(user) => user.id}
-          rows={users}
+          pagination={{
+            meta: usersPage.meta,
+            onPageChange: (page) => void handleUsersPageChange(page),
+          }}
+          rows={usersPage.items}
         />
       </Panel>
 
@@ -384,8 +425,17 @@ export function EmployeesPage() {
             <Button type="button" variant="ghost" onClick={closeModal}>
               Отмена
             </Button>
-            <Button form="edit-user-form" type="submit" variant="primary">
-              <Pencil size={16} />
+            <Button
+              form="edit-user-form"
+              type="submit"
+              isDisabled={isModalSubmitting('editUser')}
+              variant="primary"
+            >
+              {isModalSubmitting('editUser') ? (
+                <ButtonSpinner />
+              ) : (
+                <Pencil size={16} />
+              )}
               Сохранить
             </Button>
           </>
@@ -448,49 +498,21 @@ export function EmployeesPage() {
               setEditForm((prev) => ({ ...prev, departmentIds }))
             }
           />
+          <UserPasswordField
+            className="sm:col-span-2"
+            label="Новый пароль"
+            value={editForm.password}
+            onChange={(password) =>
+              setEditForm((prev) => ({ ...prev, password }))
+            }
+            onGenerate={() =>
+              setEditForm((prev) => ({
+                ...prev,
+                password: generateUserPassword(),
+              }))
+            }
+          />
         </form>
-      </ActionModal>
-
-      <ActionModal
-        isOpen={isModalOpen('resetPassword')}
-        title="Сменить пароль"
-        size="sm"
-        onOpenChange={handleModalOpenChange}
-        footer={
-          <>
-            <Button type="button" variant="ghost" onClick={closeModal}>
-              Закрыть
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              onClick={() => void resetUserPassword()}
-            >
-              <KeyRound size={16} />
-              Сгенерировать
-            </Button>
-          </>
-        }
-      >
-        {modal?.type === 'resetPassword' && (
-          <div className="space-y-3">
-            <p className="text-sm text-slate-600">
-              Будет создан временный пароль для {formatPersonName(modal.user)}.
-            </p>
-            {passwordResetResult && (
-              <Notice tone="success">
-                {[
-                  passwordResetResult.login
-                    ? `Логин: ${passwordResetResult.login}.`
-                    : '',
-                  `Пароль: ${passwordResetResult.temporaryPassword}`,
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              </Notice>
-            )}
-          </div>
-        )}
       </ActionModal>
 
       <ActionModal
@@ -505,10 +527,15 @@ export function EmployeesPage() {
             </Button>
             <Button
               type="button"
+              isDisabled={isModalSubmitting('archiveUser')}
               variant="danger"
               onClick={() => void archiveUser()}
             >
-              <Archive size={16} />
+              {isModalSubmitting('archiveUser') ? (
+                <ButtonSpinner />
+              ) : (
+                <Archive size={16} />
+              )}
               Архивировать
             </Button>
           </>

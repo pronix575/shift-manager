@@ -1,4 +1,13 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   ArrayUnique,
@@ -17,6 +26,8 @@ import { UserRole } from 'generated/prisma/enums';
 
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { PaginationQueryDto } from '../pagination.dto';
+import { parseOptionalPagination } from '../query.utils';
 
 class OrganizationDto {
   @IsString()
@@ -47,6 +58,10 @@ class CreateOrganizationUserDto {
   @IsString()
   middleName?: string;
 
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
   @IsIn([UserRole.ORG_MANAGER, UserRole.EMPLOYEE])
   role!: Extract<UserRole, 'ORG_MANAGER' | 'EMPLOYEE'>;
 
@@ -73,6 +88,11 @@ class UpdateOrganizationUserDto {
   middleName?: string;
 
   @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
+
+  @IsOptional()
   @IsIn([UserRole.ORG_MANAGER, UserRole.EMPLOYEE])
   role?: Extract<UserRole, 'ORG_MANAGER' | 'EMPLOYEE'>;
 
@@ -95,12 +115,22 @@ export class OrganizationsController {
   ) {}
 
   @Get()
-  list() {
-    return this.organizationsService.listOrganizations();
+  list(@Query() query: PaginationQueryDto) {
+    return this.organizationsService.listOrganizations(
+      parseOptionalPagination(query),
+    );
+  }
+
+  @Get(':id')
+  get(@Param('id') id: string) {
+    return this.organizationsService.getOrganization(id);
   }
 
   @Post()
-  create(@CurrentUserParam() actor: CurrentUser, @Body() body: OrganizationDto) {
+  create(
+    @CurrentUserParam() actor: CurrentUser,
+    @Body() body: OrganizationDto,
+  ) {
     return this.organizationsService.createOrganization(actor, body);
   }
 
@@ -119,13 +149,32 @@ export class OrganizationsController {
   }
 
   @Get(':id/departments')
-  listDepartments(@Param('id') id: string) {
-    return this.departmentsService.listByOrganizationId(id);
+  listDepartments(
+    @Param('id') id: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.departmentsService.listByOrganizationId(
+      id,
+      parseOptionalPagination(query),
+    );
   }
 
   @Post(':id/departments')
   createDepartment(@Param('id') id: string, @Body() body: DepartmentDto) {
     return this.departmentsService.createByOrganizationId(id, body.name);
+  }
+
+  @Patch(':id/departments/:departmentId')
+  updateDepartment(
+    @Param('id') id: string,
+    @Param('departmentId') departmentId: string,
+    @Body() body: DepartmentDto,
+  ) {
+    return this.departmentsService.updateByOrganizationId(
+      id,
+      departmentId,
+      body.name,
+    );
   }
 
   @Delete(':id/departments/:departmentId')
@@ -137,8 +186,11 @@ export class OrganizationsController {
   }
 
   @Get(':id/users')
-  listUsers(@Param('id') id: string) {
-    return this.usersService.listUsersByOrganizationId(id);
+  listUsers(@Param('id') id: string, @Query() query: PaginationQueryDto) {
+    return this.usersService.listUsersByOrganizationId(
+      id,
+      parseOptionalPagination(query),
+    );
   }
 
   @Post(':id/users')
@@ -160,7 +212,12 @@ export class OrganizationsController {
     @Param('userId') userId: string,
     @Body() body: UpdateOrganizationUserDto,
   ) {
-    return this.usersService.updateUserByOrganizationId(actor, id, userId, body);
+    return this.usersService.updateUserByOrganizationId(
+      actor,
+      id,
+      userId,
+      body,
+    );
   }
 
   @Delete(':id/users/:userId')
@@ -170,14 +227,5 @@ export class OrganizationsController {
     @Param('userId') userId: string,
   ) {
     return this.usersService.archiveUserByOrganizationId(actor, id, userId);
-  }
-
-  @Post(':id/users/:userId/reset-password')
-  resetPassword(
-    @CurrentUserParam() actor: CurrentUser,
-    @Param('id') id: string,
-    @Param('userId') userId: string,
-  ) {
-    return this.usersService.resetPasswordByOrganizationId(actor, id, userId);
   }
 }

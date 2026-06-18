@@ -11,8 +11,8 @@ const nullableNumber = z.preprocess((value) => {
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   API_PREFIX: z.string().default('api'),
-  APP_ORIGIN: z.string().url().default('http://localhost:3007'),
-  CORS_ORIGINS: z.string().default('http://localhost:3007'),
+  APP_ORIGIN: z.string().url().default('http://localhost:3005'),
+  CORS_ORIGINS: z.string().default('http://localhost:3005'),
   DATABASE_URL: z.string().min(1),
   DIRECT_URL: z.string().min(1),
   JWT_ACCESS_SECRET: z.string().min(16),
@@ -61,9 +61,15 @@ export function parseDurationMs(value: string): number {
   return amount * (multiplierByUnit[unit] ?? 1000);
 }
 
-export function getCorsOrigins(value: string): string[] {
-  return value
+export function getCorsOrigin(value: string): true | string[] {
+  const origins = value
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+
+  if (origins.includes('*')) {
+    return true;
+  }
+
+  return origins;
 }

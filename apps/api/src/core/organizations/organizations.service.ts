@@ -1,7 +1,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { CurrentUser } from 'core/auth/current-user.types';
+import {
+  buildPaginatedResult,
+  getPaginationRange,
+  type PaginationParams,
+} from 'core/pagination/pagination';
 import { PrismaService } from 'core/prisma/prisma.service';
+import type { Prisma } from 'generated/prisma/client';
 import { OrganizationStatus, UserRole } from 'generated/prisma/enums';
 
 export type CreateOrganizationInput = {
@@ -15,15 +21,35 @@ export type UpdateOrganizationInput = Partial<CreateOrganizationInput>;
 export class OrganizationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listOrganizations() {
+  async listOrganizations(pagination?: PaginationParams) {
+    if (pagination) {
+      const total = await this.prisma.organization.count();
+      const range = getPaginationRange(pagination, total);
+      const items = await this.prisma.organization.findMany({
+        ...this.organizationListQuery,
+        skip: range.skip,
+        take: range.take,
+      });
+
+      return buildPaginatedResult(items, total, range);
+    }
+
     return this.prisma.organization.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: {
-          select: { users: true, shifts: true, departments: true },
-        },
-      },
+      ...this.organizationListQuery,
     });
+  }
+
+  async getOrganization(organizationId: string) {
+    const organization = await this.prisma.organization.findUnique({
+      where: { id: organizationId },
+      include: this.organizationListQuery.include,
+    });
+
+    if (!organization) {
+      throw new NotFoundException('Организация не найдена');
+    }
+
+    return organization;
   }
 
   async createOrganization(actor: CurrentUser, input: CreateOrganizationInput) {
@@ -122,4 +148,13 @@ export class OrganizationsService {
       throw new ForbiddenException('Доступно только администратору');
     }
   }
+
+  private readonly organizationListQuery = {
+    orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+    include: {
+      _count: {
+        select: { users: true, shifts: true, departments: true },
+      },
+    },
+  } satisfies Prisma.OrganizationFindManyArgs;
 }

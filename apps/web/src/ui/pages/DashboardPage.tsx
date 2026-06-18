@@ -5,6 +5,11 @@ import { useEffect, useState } from 'react';
 import { Organization, Shift, StatsSummary } from 'api/generated/api.types';
 import { getOrganizationRequest } from 'api/organization.api';
 import {
+  DEFAULT_PAGE,
+  getEmptyPaginatedResponse,
+  PaginationQuery,
+} from 'api/pagination';
+import {
   exportShiftsRequest,
   getStatsSummaryRequest,
   listShiftsRequest,
@@ -24,18 +29,37 @@ import { StatusPill } from 'ui/components/StatusPill';
 export function DashboardPage() {
   const [organization, setOrganization] = useState<Organization | null>(null);
   const [summary, setSummary] = useState<StatsSummary | null>(null);
-  const [shifts, setShifts] = useState<Shift[]>([]);
+  const [shiftsPage, setShiftsPage] = useState(() =>
+    getEmptyPaginatedResponse<Shift>(8),
+  );
+  const [shiftsPagination, setShiftsPagination] = useState<PaginationQuery>({
+    page: DEFAULT_PAGE,
+    perPage: 8,
+  });
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  async function load(nextShiftsPagination = shiftsPagination) {
     const [nextOrganization, nextSummary, nextShifts] = await Promise.all([
       getOrganizationRequest(),
       getStatsSummaryRequest(),
-      listShiftsRequest(),
+      listShiftsRequest(nextShiftsPagination),
     ]);
     setOrganization(nextOrganization);
     setSummary(nextSummary);
-    setShifts(nextShifts.slice(0, 8));
+    setShiftsPage(nextShifts);
+    setShiftsPagination({
+      page: nextShifts.meta.page,
+      perPage: nextShifts.meta.perPage,
+    });
+  }
+
+  async function loadShiftsPage(nextShiftsPagination: PaginationQuery) {
+    const nextShifts = await listShiftsRequest(nextShiftsPagination);
+    setShiftsPage(nextShifts);
+    setShiftsPagination({
+      page: nextShifts.meta.page,
+      perPage: nextShifts.meta.perPage,
+    });
   }
 
   useEffect(() => {
@@ -52,6 +76,16 @@ export function DashboardPage() {
     link.download = 'shifts.xlsx';
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function handleShiftsPageChange(page: number) {
+    setError(null);
+
+    try {
+      await loadShiftsPage({ ...shiftsPagination, page });
+    } catch (requestError) {
+      setError(await readApiError(requestError));
+    }
   }
 
   return (
@@ -159,7 +193,11 @@ export function DashboardPage() {
             },
           ]}
           getRowKey={(shift) => shift.id}
-          rows={shifts}
+          pagination={{
+            meta: shiftsPage.meta,
+            onPageChange: (page) => void handleShiftsPageChange(page),
+          }}
+          rows={shiftsPage.items}
         />
       </Panel>
     </div>

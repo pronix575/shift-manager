@@ -1,62 +1,59 @@
-import { Shift, StatsSummary } from './generated/api.types';
+import type { Api } from './generated/api.types';
 import { apiClient } from './http/client';
+import type { PaginationQuery } from './pagination';
 
-export type ShiftQuery = {
-  from?: string;
-  to?: string;
-  employeeId?: string;
-  departmentId?: string;
-};
+export type ShiftFilterQuery = Api.ShiftsControllerExport.RequestQuery;
 
-export type StartShiftPayload = {
-  departmentId?: string;
-  comment?: string;
-};
+export type ShiftQuery = ShiftFilterQuery & PaginationQuery;
 
-export type UpdateShiftPayload = {
-  startedAt?: string;
-  endedAt?: string;
-  departmentId?: string;
-  comment?: string;
-};
+export type StartShiftPayload = Api.ShiftsControllerStart.RequestBody;
+export type UpdateShiftPayload = Api.ShiftsControllerUpdate.RequestBody;
 
-function cleanQuery(query: ShiftQuery) {
+function cleanQuery(query: Record<string, number | string | undefined>) {
   return Object.fromEntries(
-    Object.entries(query).filter(([, value]) => value !== undefined && value !== ''),
+    Object.entries(query)
+      .filter(([, value]) => value !== undefined && value !== '')
+      .map(([key, value]) => [key, String(value)]),
   ) as Record<string, string>;
 }
 
 export function listShiftsRequest(query: ShiftQuery = {}) {
   return apiClient
     .get('shifts', { searchParams: cleanQuery(query) })
-    .json<Shift[]>();
+    .json<Api.ShiftsControllerList.ResponseBody>();
 }
 
 export function listMyShiftsRequest(query: ShiftQuery = {}) {
   return apiClient
     .get('shifts/me', { searchParams: cleanQuery(query) })
-    .json<Shift[]>();
+    .json<Api.ShiftsControllerListMine.ResponseBody>();
 }
 
 export function startShiftRequest(payload: StartShiftPayload) {
-  return apiClient.post('shifts/start', { json: payload }).json<Shift>();
+  return apiClient
+    .post('shifts/start', { json: payload })
+    .json<Api.ShiftsControllerStart.ResponseBody>();
 }
 
 export function finishShiftRequest(id: string) {
-  return apiClient.post(`shifts/${id}/finish`).json<Shift>();
+  return apiClient
+    .post(`shifts/${id}/finish`)
+    .json<Api.ShiftsControllerFinish.ResponseBody>();
 }
 
 export function updateShiftRequest(id: string, payload: UpdateShiftPayload) {
-  return apiClient.patch(`shifts/${id}`, { json: payload }).json<Shift>();
+  return apiClient
+    .patch(`shifts/${id}`, { json: payload })
+    .json<Api.ShiftsControllerUpdate.ResponseBody>();
 }
 
-export function getStatsSummaryRequest(query: ShiftQuery = {}) {
+export function getStatsSummaryRequest(query: ShiftFilterQuery = {}) {
   return apiClient
     .get('stats/summary', { searchParams: cleanQuery(query) })
-    .json<StatsSummary>();
+    .json<Api.StatsControllerSummary.ResponseBody>();
 }
 
-export function exportShiftsRequest(query: ShiftQuery = {}) {
+export function exportShiftsRequest(query: ShiftFilterQuery = {}) {
   return apiClient
     .get('shifts/export.xlsx', { searchParams: cleanQuery(query) })
     .blob();

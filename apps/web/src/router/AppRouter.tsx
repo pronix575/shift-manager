@@ -41,6 +41,10 @@ export function AppRouter() {
         <Route path="/employees" element={<EmployeesPage />} />
         <Route path="/organization" element={<OrganizationSettingsPage />} />
         <Route path="/admin/organizations" element={<AdminOrganizationsPage />} />
+        <Route
+          path="/admin/organizations/:organizationId"
+          element={<AdminOrganizationsPage />}
+        />
         <Route path="*" element={<Navigate replace to={getDefaultRoute(user.role)} />} />
       </Routes>
     </AppShell>

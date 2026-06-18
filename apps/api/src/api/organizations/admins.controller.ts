@@ -21,6 +21,10 @@ class CreateAdminDto {
   @IsOptional()
   @IsString()
   middleName?: string;
+
+  @IsString()
+  @MinLength(8)
+  password!: string;
 }
 
 @ApiBearerAuth()

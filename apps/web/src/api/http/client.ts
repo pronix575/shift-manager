@@ -1,11 +1,12 @@
 import ky, { HTTPError } from 'ky';
 
-import { AuthResponse } from 'api/generated/api.types';
+import type { Api } from 'api/generated/api.types';
 import { sessionStorageService } from 'services/core/session/sessionStorage';
 
-const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000/api';
+const apiUrl = resolveApiUrl(import.meta.env.VITE_API_URL || '/api');
 
-let refreshPromise: Promise<AuthResponse | null> | null = null;
+let refreshPromise: Promise<Api.AuthControllerRefresh.ResponseBody | null> | null =
+  null;
 
 export const apiClient = ky.create({
   prefixUrl: apiUrl,
@@ -23,9 +24,9 @@ export const apiClient = ky.create({
     ],
     afterResponse: [
       async (request, options, response) => {
-        const isAuthRequest = request.url.includes('/auth/');
+        const shouldSkipRefresh = isSessionRefreshSkipped(request.url);
 
-        if (response.status !== 401 || isAuthRequest) {
+        if (response.status !== 401 || shouldSkipRefresh) {
           return response;
         }
 
@@ -64,7 +65,19 @@ export async function readApiError(error: unknown): Promise<string> {
   return error instanceof Error ? error.message : 'Неизвестная ошибка';
 }
 
-async function refreshSession(): Promise<AuthResponse | null> {
+export function resolveApiUrl(url: string) {
+  return new URL(url, window.location.origin).toString().replace(/\/$/, '');
+}
+
+export function isSessionRefreshSkipped(url: string) {
+  const pathname = new URL(url, window.location.origin).pathname;
+
+  return ['/auth/login', '/auth/refresh', '/auth/logout'].some((authPath) =>
+    pathname.endsWith(authPath),
+  );
+}
+
+async function refreshSession(): Promise<Api.AuthControllerRefresh.ResponseBody | null> {
   const refreshToken = sessionStorageService.getRefreshToken();
 
   if (!refreshToken) {
@@ -74,10 +87,10 @@ async function refreshSession(): Promise<AuthResponse | null> {
   refreshPromise ??= ky
     .post('auth/refresh', {
       prefixUrl: apiUrl,
-      json: { refreshToken },
+      json: { refreshToken } satisfies Api.AuthControllerRefresh.RequestBody,
       retry: { limit: 0 },
     })
-    .json<AuthResponse>()
+    .json<Api.AuthControllerRefresh.ResponseBody>()
     .then((response) => {
       sessionStorageService.setAccessToken(response.accessToken);
       sessionStorageService.setRefreshToken(response.refreshToken);

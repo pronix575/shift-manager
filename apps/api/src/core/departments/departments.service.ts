@@ -1,6 +1,15 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { CurrentUser } from 'core/auth/current-user.types';
+import {
+  buildPaginatedResult,
+  getPaginationRange,
+  type PaginationParams,
+} from 'core/pagination/pagination';
 import { PrismaService } from 'core/prisma/prisma.service';
 import { UserRole } from 'generated/prisma/enums';
 
@@ -8,15 +17,34 @@ import { UserRole } from 'generated/prisma/enums';
 export class DepartmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(actor: CurrentUser) {
+  async list(actor: CurrentUser, pagination?: PaginationParams) {
     const organizationId = this.getOrganizationId(actor);
 
-    return this.listByOrganizationId(organizationId);
+    return this.listByOrganizationId(organizationId, pagination);
   }
 
-  async listByOrganizationId(organizationId: string) {
+  async listByOrganizationId(
+    organizationId: string,
+    pagination?: PaginationParams,
+  ) {
+    const where = { organizationId, archivedAt: null };
+
+    if (pagination) {
+      const total = await this.prisma.department.count({ where });
+      const range = getPaginationRange(pagination, total);
+      const items = await this.prisma.department.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        include: { _count: { select: { users: true, shifts: true } } },
+        skip: range.skip,
+        take: range.take,
+      });
+
+      return buildPaginatedResult(items, total, range);
+    }
+
     return this.prisma.department.findMany({
-      where: { organizationId, archivedAt: null },
+      where,
       orderBy: { name: 'asc' },
       include: { _count: { select: { users: true, shifts: true } } },
     });
@@ -39,6 +67,15 @@ export class DepartmentsService {
 
   async update(actor: CurrentUser, departmentId: string, name: string) {
     const organizationId = this.getOrganizationId(actor);
+
+    return this.updateByOrganizationId(organizationId, departmentId, name);
+  }
+
+  async updateByOrganizationId(
+    organizationId: string,
+    departmentId: string,
+    name: string,
+  ) {
     await this.assertDepartmentInOrganization(departmentId, organizationId);
 
     return this.prisma.department.update({
@@ -79,7 +116,9 @@ export class DepartmentsService {
     });
 
     if (count !== departmentIds.length) {
-      throw new ForbiddenException('Часть департаментов не относится к организации');
+      throw new ForbiddenException(
+        'Часть департаментов не относится к организации',
+      );
     }
   }
 

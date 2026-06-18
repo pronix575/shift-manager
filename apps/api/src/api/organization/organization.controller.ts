@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
@@ -25,6 +26,8 @@ import { UserRole } from 'generated/prisma/enums';
 
 import { CurrentUserParam } from '../auth/current-user.decorator';
 import { Roles } from '../auth/roles.decorator';
+import { PaginationQueryDto } from '../pagination.dto';
+import { parseOptionalPagination } from '../query.utils';
 
 class UpdateOrganizationDto {
   @IsOptional()
@@ -56,6 +59,10 @@ class CreateOrganizationUserDto {
   @IsString()
   middleName?: string;
 
+  @IsString()
+  @MinLength(8)
+  password!: string;
+
   @IsIn([UserRole.ORG_MANAGER, UserRole.EMPLOYEE])
   role!: Extract<UserRole, 'ORG_MANAGER' | 'EMPLOYEE'>;
 
@@ -80,6 +87,11 @@ class UpdateOrganizationUserDto {
   @IsOptional()
   @IsString()
   middleName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
 
   @IsOptional()
   @IsIn([UserRole.ORG_MANAGER, UserRole.EMPLOYEE])
@@ -121,8 +133,11 @@ export class OrganizationController {
   }
 
   @Get('departments')
-  listDepartments(@CurrentUserParam() actor: CurrentUser) {
-    return this.departmentsService.list(actor);
+  listDepartments(
+    @CurrentUserParam() actor: CurrentUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.departmentsService.list(actor, parseOptionalPagination(query));
   }
 
   @Post('departments')
@@ -151,8 +166,14 @@ export class OrganizationController {
   }
 
   @Get('users')
-  listUsers(@CurrentUserParam() actor: CurrentUser) {
-    return this.usersService.listOrganizationUsers(actor);
+  listUsers(
+    @CurrentUserParam() actor: CurrentUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.usersService.listOrganizationUsers(
+      actor,
+      parseOptionalPagination(query),
+    );
   }
 
   @Post('users')
@@ -175,13 +196,5 @@ export class OrganizationController {
   @Delete('users/:id')
   archiveUser(@CurrentUserParam() actor: CurrentUser, @Param('id') id: string) {
     return this.usersService.archiveOrganizationUser(actor, id);
-  }
-
-  @Post('users/:id/reset-password')
-  resetPassword(
-    @CurrentUserParam() actor: CurrentUser,
-    @Param('id') id: string,
-  ) {
-    return this.usersService.resetPassword(actor, id);
   }
 }
